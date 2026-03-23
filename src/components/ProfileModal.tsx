@@ -28,12 +28,12 @@ export function ProfileModal({ open, profile, onClose, onSave }: ProfileModalPro
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
-      <section className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-5">
-        <h3 className="text-lg font-semibold text-white">Edit profile</h3>
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+      <section className="w-full max-w-md rounded-3xl border border-cyan-300/25 bg-slate-900/45 p-5 shadow-[0_0_45px_rgba(14,165,233,0.2)] backdrop-blur-xl">
+        <h3 className="text-lg font-semibold text-white">Профиль</h3>
         <form onSubmit={handleSubmit} className="mt-4 space-y-3">
           <label className="block text-sm text-slate-200">
-            Family name
+            Имя
             <input
               value={fullName}
               onChange={(event) =>
@@ -42,7 +42,7 @@ export function ProfileModal({ open, profile, onClose, onSave }: ProfileModalPro
                   avatarUrl: previous?.avatarUrl ?? avatarUrl,
                 }))
               }
-              className="mt-1.5 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-violet-400"
+              className="mt-1.5 w-full rounded-xl border border-white/20 bg-slate-950/70 px-3 py-2 text-sm text-white outline-none transition focus:border-cyan-300/70"
             />
           </label>
           <label className="block text-sm text-slate-200">
@@ -55,7 +55,7 @@ export function ProfileModal({ open, profile, onClose, onSave }: ProfileModalPro
                   avatarUrl: event.target.value,
                 }))
               }
-              className="mt-1.5 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-violet-400"
+              className="mt-1.5 w-full rounded-xl border border-white/20 bg-slate-950/70 px-3 py-2 text-sm text-white outline-none transition focus:border-cyan-300/70"
             />
           </label>
           <div className="flex justify-end gap-2 pt-2">
@@ -65,16 +65,16 @@ export function ProfileModal({ open, profile, onClose, onSave }: ProfileModalPro
                 setDraft(null)
                 onClose()
               }}
-              className="rounded-xl border border-white/10 px-3 py-2 text-sm text-slate-300"
+              className="rounded-xl border border-white/25 px-3 py-2 text-sm text-slate-300 transition hover:bg-white/10"
             >
-              Cancel
+              Отмена
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="rounded-xl bg-violet-500 px-3 py-2 text-sm text-white"
+              className="rounded-xl bg-gradient-to-r from-violet-500 to-cyan-500 px-3 py-2 text-sm text-white transition hover:scale-105 hover:shadow-[0_0_20px_rgba(14,165,233,0.45)]"
             >
-              {saving ? 'Saving...' : 'Save'}
+              {saving ? 'Сохраняем...' : 'Сохранить'}
             </button>
           </div>
         </form>

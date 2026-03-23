@@ -125,11 +125,15 @@ export function AuthScreen({ onError }: AuthScreenProps) {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-950 p-6">
-      <section className="w-full max-w-md rounded-3xl border border-white/10 bg-slate-900/70 p-7 shadow-2xl backdrop-blur">
-        <h1 className="text-2xl font-semibold text-white">Family Messenger</h1>
-        <p className="mt-2 text-sm text-slate-400">
-          Личный семейный чат и звонки.
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-950 p-6">
+      <div className="pointer-events-none absolute -top-32 left-1/2 h-96 w-96 -translate-x-1/2 rounded-full bg-violet-500/25 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-20 right-0 h-72 w-72 rounded-full bg-cyan-500/20 blur-3xl" />
+      <section className="relative w-full max-w-md rounded-3xl border border-cyan-300/30 bg-slate-900/45 p-7 shadow-[0_0_50px_rgba(14,165,233,0.2)] backdrop-blur-xl transition duration-300 hover:border-cyan-300/45">
+        <h1 className="bg-gradient-to-r from-violet-300 via-blue-200 to-cyan-200 bg-clip-text text-2xl font-semibold text-transparent">
+          Family Messenger
+        </h1>
+        <p className="mt-2 text-sm text-slate-300">
+          Личный футуристичный чат и звонки в реальном времени.
         </p>
         {statusMessage && (
           <div
@@ -150,7 +154,7 @@ export function AuthScreen({ onError }: AuthScreenProps) {
               onChange={(event) => setEmail(event.target.value)}
               type="email"
               autoComplete="email"
-              className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-violet-400"
+              className="mt-2 w-full rounded-xl border border-white/20 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-300"
             />
           </label>
           <label className="block text-sm text-slate-200">
@@ -160,13 +164,13 @@ export function AuthScreen({ onError }: AuthScreenProps) {
               onChange={(event) => setPassword(event.target.value)}
               type="password"
               autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
-              className="mt-2 w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition focus:border-violet-400"
+              className="mt-2 w-full rounded-xl border border-white/20 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-300"
             />
           </label>
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-xl bg-violet-500 px-4 py-3 text-sm font-medium text-white transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-xl bg-gradient-to-r from-violet-500 via-blue-500 to-cyan-500 px-4 py-3 text-sm font-medium text-white transition hover:scale-[1.02] hover:shadow-[0_0_24px_rgba(14,165,233,0.45)] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? 'Подождите...' : mode === 'signin' ? 'Войти' : 'Создать аккаунт'}
           </button>
@@ -176,7 +180,7 @@ export function AuthScreen({ onError }: AuthScreenProps) {
             type="button"
             onClick={handleResendConfirmation}
             disabled={resending}
-            className="mt-4 w-full rounded-xl border border-amber-300/40 bg-amber-500/10 px-4 py-3 text-sm font-medium text-amber-200 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-4 w-full rounded-xl border border-amber-300/40 bg-amber-500/10 px-4 py-3 text-sm font-medium text-amber-200 transition hover:scale-[1.01] hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {resending ? 'Отправляем...' : 'Отправить письмо повторно'}
           </button>
@@ -184,7 +188,7 @@ export function AuthScreen({ onError }: AuthScreenProps) {
         <button
           type="button"
           onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
-          className="mt-4 text-sm text-violet-300 transition hover:text-violet-200"
+          className="mt-4 text-sm text-cyan-200 transition hover:text-cyan-100"
         >
           {mode === 'signin'
             ? 'Нет аккаунта? Зарегистрируйтесь'

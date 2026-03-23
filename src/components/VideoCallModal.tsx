@@ -19,6 +19,7 @@ import type { Profile } from '../types/chat'
 type VideoCallModalProps = {
   open: boolean
   profile: Profile
+  callRoomKey: string
   memberIds: string[]
   onClose: () => void
   onError: (message: string) => void
@@ -27,6 +28,7 @@ type VideoCallModalProps = {
 export function VideoCallModal({
   open,
   profile,
+  callRoomKey,
   memberIds,
   onClose,
   onError,
@@ -35,10 +37,7 @@ export function VideoCallModal({
   const [call, setCall] = useState<Call | null>(null)
   const [joining, setJoining] = useState(false)
 
-  const callId = useMemo(
-    () => `family-room-${new Date().toISOString().slice(0, 10)}`,
-    [],
-  )
+  const callId = useMemo(() => callRoomKey, [callRoomKey])
 
   useEffect(() => {
     if (!open || !hasStreamConfig) return
@@ -116,19 +115,20 @@ export function VideoCallModal({
 
   if (!hasStreamConfig) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950 p-4">
-        <section className="w-full max-w-lg rounded-2xl border border-white/10 bg-slate-900 p-6">
-          <p className="text-white">
-            Add VITE_STREAM_API_KEY and VITE_STREAM_TOKEN_ENDPOINT to enable calls.
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 p-4 backdrop-blur-sm">
+        <section className="w-full max-w-lg rounded-3xl border border-cyan-300/25 bg-slate-900/60 p-6 shadow-[0_0_40px_rgba(14,165,233,0.2)]">
+          <p className="text-white">Добавьте настройки Stream, чтобы активировать звонки.</p>
+          <p className="mt-2 text-sm text-cyan-100/80">
+            Endpoint по умолчанию: /api/stream-token
           </p>
           <p className="mt-2 text-sm text-amber-300">
             {streamConfigError || 'Проверь .env и перезапусти npm run dev'}
           </p>
           <button
             onClick={onClose}
-            className="mt-4 rounded-xl bg-violet-500 px-4 py-2 text-sm text-white"
+            className="mt-4 rounded-xl bg-gradient-to-r from-violet-500 to-cyan-500 px-4 py-2 text-sm text-white"
           >
-            Close
+            Закрыть
           </button>
         </section>
       </div>
@@ -136,15 +136,15 @@ export function VideoCallModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950">
+    <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-sm">
       {joining || !client || !call ? (
         <div className="flex h-full items-center justify-center text-white">
-          Connecting call...
+          Подключаем звонок...
         </div>
       ) : (
         <StreamVideo client={client}>
           <StreamCall call={call}>
-            <StreamTheme className="str-video h-full">
+            <StreamTheme className="str-video h-full bg-gradient-to-br from-violet-900/60 via-blue-900/60 to-cyan-900/60">
               <div className="flex h-full flex-col">
                 <div className="flex-1">
                   <SpeakerLayout participantsBarPosition="bottom" />

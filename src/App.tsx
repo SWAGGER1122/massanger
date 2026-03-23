@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { AuthScreen } from './components/AuthScreen'
 import { ChatWindow } from './components/ChatWindow'
@@ -7,11 +7,22 @@ import { Sidebar } from './components/Sidebar'
 import { VideoCallModal } from './components/VideoCallModal'
 import { useAuth } from './hooks/useAuth'
 import { hasSupabaseConfig, supabase, supabaseConfigError } from './lib/supabase'
-import type { Message, Profile } from './types/chat'
+import type { CallState, ChatThread, Message, Profile } from './types/chat'
 
 type DbRecord = Record<string, unknown>
+type BroadcastSender = {
+  send: (input: {
+    type: 'broadcast'
+    event: string
+    payload: Record<string, unknown>
+  }) => Promise<unknown>
+}
 
 const asString = (value: unknown) => (typeof value === 'string' ? value : '')
+const isRecent = (timestamp: string | null, minutes: number) => {
+  if (!timestamp) return false
+  return Date.now() - new Date(timestamp).getTime() < minutes * 60 * 1000
+}
 
 const normalizeProfile = (record: DbRecord): Profile => ({
   id: asString(record.id),
@@ -37,6 +48,12 @@ const normalizeMessage = (record: DbRecord): Message => ({
       : typeof record.user_id === 'string'
         ? record.user_id
         : '',
+  receiver_id:
+    typeof record.receiver_id === 'string'
+      ? record.receiver_id
+      : typeof record.target_id === 'string'
+        ? record.target_id
+        : null,
   content:
     typeof record.content === 'string'
       ? record.content
@@ -61,15 +78,110 @@ function App() {
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [messages, setMessages] = useState<Message[]>([])
   const [draft, setDraft] = useState('')
+  const [activeChatId, setActiveChatId] = useState('family')
   const [sending, setSending] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [profileOpen, setProfileOpen] = useState(false)
-  const [callOpen, setCallOpen] = useState(false)
+  const [typingByChat, setTypingByChat] = useState<Record<string, string>>({})
+  const [missedCalls, setMissedCalls] = useState<Record<string, number>>({})
+  const [callState, setCallState] = useState<CallState>('idle')
+  const [callChatId, setCallChatId] = useState<string | null>(null)
+  const [incomingCallerId, setIncomingCallerId] = useState<string | null>(null)
+  const [callDurationSeconds, setCallDurationSeconds] = useState(0)
+  const [micEnabled, setMicEnabled] = useState(true)
+  const [cameraEnabled, setCameraEnabled] = useState(true)
+  const realtimeChannelRef = useRef<BroadcastSender | null>(null)
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const currentProfile = useMemo(
     () => profiles.find((profile) => profile.id === user?.id) || null,
     [profiles, user?.id],
   )
+
+  const chats = useMemo<ChatThread[]>(() => {
+    if (!user) return []
+
+    const sortedMessages = [...messages].sort(
+      (first, second) =>
+        new Date(first.created_at).getTime() - new Date(second.created_at).getTime(),
+    )
+    const familyMessages = sortedMessages.filter((message) => !message.receiver_id)
+    const familyLast = familyMessages[familyMessages.length - 1]
+    const familyUnread = familyMessages.filter(
+      (message) => message.sender_id !== user.id && !(message.read_by || []).includes(user.id),
+    ).length
+
+    const directThreads = profiles
+      .filter((profile) => profile.id !== user.id)
+      .map((profile) => {
+        const directMessages = sortedMessages.filter(
+          (message) =>
+            (message.sender_id === user.id && message.receiver_id === profile.id) ||
+            (message.sender_id === profile.id && message.receiver_id === user.id),
+        )
+        const last = directMessages[directMessages.length - 1]
+        const unreadCount = directMessages.filter(
+          (message) => message.sender_id !== user.id && !(message.read_by || []).includes(user.id),
+        ).length
+
+        return {
+          id: profile.id,
+          title: profile.full_name || 'Участник семьи',
+          avatarUrl: profile.avatar_url,
+          online: isRecent(last?.created_at || null, 5),
+          lastMessage: last?.content || '',
+          lastMessageAt: last?.created_at || null,
+          unreadCount,
+          typingText: typingByChat[profile.id] || '',
+          isGroup: false,
+          missedCalls: missedCalls[profile.id] || 0,
+        } satisfies ChatThread
+      })
+      .sort(
+        (first, second) =>
+          new Date(second.lastMessageAt || 0).getTime() -
+          new Date(first.lastMessageAt || 0).getTime(),
+      )
+
+    const familyThread: ChatThread = {
+      id: 'family',
+      title: 'Семейный канал',
+      avatarUrl: null,
+      online: true,
+      lastMessage: familyLast?.content || '',
+      lastMessageAt: familyLast?.created_at || null,
+      unreadCount: familyUnread,
+      typingText: typingByChat.family || '',
+      isGroup: true,
+      missedCalls: missedCalls.family || 0,
+    }
+
+    return [familyThread, ...directThreads]
+  }, [messages, missedCalls, profiles, typingByChat, user])
+
+  const activeChat = useMemo(
+    () => chats.find((chat) => chat.id === activeChatId) || chats[0] || null,
+    [activeChatId, chats],
+  )
+  const effectiveActiveChatId = activeChat?.id || activeChatId
+
+  const visibleMessages = useMemo(() => {
+    if (!user) return []
+    const sortedMessages = [...messages].sort(
+      (first, second) =>
+        new Date(first.created_at).getTime() - new Date(second.created_at).getTime(),
+    )
+
+    if (effectiveActiveChatId === 'family') {
+      return sortedMessages.filter((message) => !message.receiver_id)
+    }
+
+    return sortedMessages.filter(
+      (message) =>
+        (message.sender_id === user.id && message.receiver_id === effectiveActiveChatId) ||
+        (message.sender_id === effectiveActiveChatId && message.receiver_id === user.id),
+    )
+  }, [effectiveActiveChatId, messages, user])
 
   useEffect(() => {
     if (!user || !supabase) return
@@ -133,20 +245,6 @@ function App() {
               new Date(first.created_at).getTime() - new Date(second.created_at).getTime(),
           )
         setMessages(normalizedMessages)
-
-        const unreadRecords = normalizedMessages.filter(
-          (message) =>
-            message.sender_id !== user.id && !(message.read_by || []).includes(user.id),
-        )
-
-        await Promise.all(
-          unreadRecords.map((message) =>
-            client
-              .from('messages')
-              .update({ read_by: [...(message.read_by || []), user.id] })
-              .eq('id', message.id),
-          ),
-        )
       }
     }
 
@@ -210,22 +308,124 @@ function App() {
       )
       .subscribe()
 
+    const signalsChannel = client
+      .channel('messenger-signals')
+      .on('broadcast', { event: 'typing' }, (eventPayload) => {
+        const payload = (eventPayload as { payload?: DbRecord }).payload || {}
+        const chatId = asString(payload.chatId)
+        const signalUserId = asString(payload.userId)
+        const name = asString(payload.name)
+        const isTyping = payload.isTyping === true
+
+        if (!chatId || !signalUserId || signalUserId === user.id) return
+
+        if (isTyping) {
+          setTypingByChat((previous) => ({
+            ...previous,
+            [chatId]: `${name || 'Участник'} печатает...`,
+          }))
+          return
+        }
+
+        setTypingByChat((previous) => {
+          const next = { ...previous }
+          delete next[chatId]
+          return next
+        })
+      })
+      .on('broadcast', { event: 'call_invite' }, (eventPayload) => {
+        const payload = (eventPayload as { payload?: DbRecord }).payload || {}
+        const chatId = asString(payload.chatId)
+        const targetId = asString(payload.targetId)
+        const fromUserId = asString(payload.fromUserId)
+
+        if (!chatId || !fromUserId || fromUserId === user.id) return
+        if (targetId && targetId !== 'family' && targetId !== user.id) return
+
+        setIncomingCallerId(fromUserId)
+        setCallChatId(chatId)
+        setActiveChatId(chatId)
+        setCallState('incoming')
+      })
+      .on('broadcast', { event: 'call_decline' }, (eventPayload) => {
+        const payload = (eventPayload as { payload?: DbRecord }).payload || {}
+        const chatId = asString(payload.chatId)
+
+        if (callState === 'outgoing' && callChatId && callChatId === chatId) {
+          setCallState('idle')
+          setCallChatId(null)
+          setErrorMessage('Собеседник отклонил вызов.')
+        }
+      })
+      .subscribe()
+
+    realtimeChannelRef.current = signalsChannel
+
     return () => {
       client.removeChannel(messagesChannel)
       client.removeChannel(profilesChannel)
+      client.removeChannel(signalsChannel)
+      realtimeChannelRef.current = null
     }
-  }, [user])
+  }, [callChatId, callState, user])
+
+  useEffect(() => {
+    if (!user || !supabase || visibleMessages.length === 0) return
+    const client = supabase
+    const unreadRecords = visibleMessages.filter(
+      (message) => message.sender_id !== user.id && !(message.read_by || []).includes(user.id),
+    )
+    if (unreadRecords.length === 0) return
+
+    Promise.all(
+      unreadRecords.map((message) =>
+        client
+          .from('messages')
+          .update({ read_by: [...(message.read_by || []), user.id] })
+          .eq('id', message.id),
+      ),
+    )
+  }, [user, visibleMessages])
+
+  useEffect(() => {
+    if (callState !== 'active') return
+    const interval = window.setInterval(() => {
+      setCallDurationSeconds((previous) => previous + 1)
+    }, 1000)
+    return () => window.clearInterval(interval)
+  }, [callState])
+
+  const sendSignal = (event: string, payload: Record<string, unknown>) => {
+    const channel = realtimeChannelRef.current
+    if (!channel) return
+    void channel.send({
+      type: 'broadcast',
+      event,
+      payload,
+    })
+  }
 
   const handleSendMessage = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!user || !supabase || !draft.trim()) return
     setSending(true)
 
-    let { error } = await supabase.from('messages').insert({
-      sender_id: user.id,
-      content: draft.trim(),
-      read_by: [user.id],
-    })
+    // Сохраняем структуру прошлой схемы и добавляем отправку в активный чат.
+    const payload =
+      effectiveActiveChatId === 'family'
+        ? {
+            sender_id: user.id,
+            content: draft.trim(),
+            read_by: [user.id],
+          }
+        : {
+            sender_id: user.id,
+            receiver_id: effectiveActiveChatId,
+            content: draft.trim(),
+            read_by: [user.id],
+          }
+
+    let { error } = await supabase.from('messages').insert(payload)
 
     if (error) {
       const fallbackInsert = await supabase.from('messages').insert({
@@ -239,8 +439,90 @@ function App() {
       setErrorMessage(error.message)
     } else {
       setDraft('')
+      setTypingByChat((previous) => {
+        const next = { ...previous }
+        delete next[effectiveActiveChatId]
+        return next
+      })
     }
     setSending(false)
+  }
+
+  const handleTypingChange = (isTyping: boolean) => {
+    if (!user || !activeChat || !effectiveActiveChatId) return
+    sendSignal('typing', {
+      chatId: effectiveActiveChatId,
+      userId: user.id,
+      name: currentProfile?.full_name || user.email || 'Участник',
+      isTyping,
+    })
+
+    if (typingTimeoutRef.current) {
+      window.clearTimeout(typingTimeoutRef.current)
+    }
+
+    if (isTyping) {
+      typingTimeoutRef.current = window.setTimeout(() => {
+        sendSignal('typing', {
+          chatId: effectiveActiveChatId,
+          userId: user.id,
+          name: currentProfile?.full_name || user.email || 'Участник',
+          isTyping: false,
+        })
+      }, 1200)
+    }
+  }
+
+  const handleStartCall = () => {
+    if (!user || !activeChat) return
+    setCallChatId(activeChat.id)
+    setIncomingCallerId(null)
+    setCallState('outgoing')
+    sendSignal('call_invite', {
+      chatId: activeChat.id,
+      fromUserId: user.id,
+      targetId: activeChat.isGroup ? 'family' : activeChat.id,
+    })
+
+    window.setTimeout(() => {
+      setCallState((previous) => {
+        if (previous !== 'outgoing') return previous
+        setCallDurationSeconds(0)
+        return 'active'
+      })
+    }, 1800)
+  }
+
+  const handleAcceptCall = () => {
+    setCallDurationSeconds(0)
+    setCallState('active')
+    setMissedCalls((previous) => ({
+      ...previous,
+      [callChatId || 'family']: 0,
+    }))
+  }
+
+  const handleDeclineCall = () => {
+    if (callChatId) {
+      setMissedCalls((previous) => ({
+        ...previous,
+        [callChatId]: (previous[callChatId] || 0) + 1,
+      }))
+      sendSignal('call_decline', {
+        chatId: callChatId,
+        toUserId: incomingCallerId || '',
+      })
+    }
+    setCallState('idle')
+    setIncomingCallerId(null)
+    setCallChatId(null)
+  }
+
+  const handleEndCall = () => {
+    setCallState('idle')
+    setCallChatId(null)
+    setIncomingCallerId(null)
+    setCallDurationSeconds(0)
   }
 
   const handleSaveProfile = async (fullName: string, avatarUrl: string) => {
@@ -295,21 +577,41 @@ function App() {
 
   return (
     <>
-      <main className="min-h-screen bg-slate-950 md:flex">
+      <main className="relative min-h-screen overflow-hidden bg-slate-950 p-4 md:flex md:gap-4 md:p-5">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(139,92,246,0.28),transparent_35%),radial-gradient(circle_at_90%_10%,rgba(59,130,246,0.22),transparent_35%),radial-gradient(circle_at_80%_80%,rgba(45,212,191,0.2),transparent_35%)]" />
         <Sidebar
-          profiles={profiles}
-          activeUserId={user.id}
+          currentUser={currentProfile}
+          chats={chats}
+          activeChatId={effectiveActiveChatId}
+          onSelectChat={(chatId) => {
+            setActiveChatId(chatId)
+            setMissedCalls((previous) => ({
+              ...previous,
+              [chatId]: 0,
+            }))
+          }}
           onSignOut={handleSignOut}
           onProfileOpen={() => setProfileOpen(true)}
         />
         <ChatWindow
           userId={user.id}
-          messages={messages}
+          activeChat={activeChat}
+          messages={visibleMessages}
           profiles={profiles}
           draft={draft}
           onDraftChange={setDraft}
+          onTyping={handleTypingChange}
           onSend={handleSendMessage}
-          onOpenCall={() => setCallOpen(true)}
+          callState={callState}
+          callDurationSeconds={callDurationSeconds}
+          micEnabled={micEnabled}
+          cameraEnabled={cameraEnabled}
+          onStartCall={handleStartCall}
+          onAcceptCall={handleAcceptCall}
+          onDeclineCall={handleDeclineCall}
+          onEndCall={handleEndCall}
+          onToggleMic={() => setMicEnabled((previous) => !previous)}
+          onToggleCamera={() => setCameraEnabled((previous) => !previous)}
           sending={sending}
         />
       </main>
@@ -326,10 +628,15 @@ function App() {
       />
       {currentProfile && (
         <VideoCallModal
-          open={callOpen}
+          open={callState === 'active' && Boolean(callChatId)}
           profile={currentProfile}
-          memberIds={profiles.map((profile) => profile.id)}
-          onClose={() => setCallOpen(false)}
+          callRoomKey={`family-room-${callChatId || 'family'}`}
+          memberIds={
+            callChatId && callChatId !== 'family'
+              ? [user.id, callChatId]
+              : profiles.map((profile) => profile.id)
+          }
+          onClose={handleEndCall}
           onError={setErrorMessage}
         />
       )}
