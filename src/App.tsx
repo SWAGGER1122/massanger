@@ -91,15 +91,24 @@ function App() {
     const client = supabase
 
     const loadData = async () => {
-      const [profilesResponse, messagesResponse] = await Promise.all([
-        client
-          .from('profiles')
-          .select('*'),
-        client
-          .from('messages')
-          .select('*')
-          .limit(300),
+      const profilesPromise = client.from('profiles').select('*')
+      const messagesPromise = client
+        .from('messages')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(300)
+
+      const [profilesResponse, orderedMessagesResponse] = await Promise.all([
+        profilesPromise,
+        messagesPromise,
       ])
+
+      const messagesResponse = orderedMessagesResponse.error
+        ? await client
+            .from('messages')
+            .select('*')
+            .limit(300)
+        : orderedMessagesResponse
 
       if (profilesResponse.error) {
         setErrorMessage(profilesResponse.error.message)
@@ -152,7 +161,12 @@ function App() {
           if (payload.eventType === 'INSERT') {
             const message = normalizeMessage(payload.new as DbRecord)
             if (!message.id || !message.sender_id || !message.content) return
-            setMessages((previous) => [...previous, message])
+            setMessages((previous) => {
+              if (previous.some((item) => item.id === message.id)) {
+                return previous
+              }
+              return [...previous, message]
+            })
 
             if (message.sender_id !== user.id && !(message.read_by || []).includes(user.id)) {
               await client

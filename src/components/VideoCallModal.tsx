@@ -59,7 +59,9 @@ export function VideoCallModal({
           })
 
           if (!response.ok) {
-            throw new Error('Stream token endpoint failed.')
+            throw new Error(
+              `Ошибка token endpoint (${response.status}). Проверьте VITE_STREAM_TOKEN_ENDPOINT: ${streamTokenEndpoint}`,
+            )
           }
 
           const data = (await response.json()) as { token: string }

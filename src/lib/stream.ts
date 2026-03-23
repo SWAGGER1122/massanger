@@ -17,21 +17,44 @@ const readEnv = (names: string[]) => {
 }
 
 export const streamApiKey = readEnv(['VITE_STREAM_API_KEY', 'STREAM_API_KEY'])
-export const streamTokenEndpoint = readEnv([
+const rawStreamTokenEndpoint = readEnv([
   'VITE_STREAM_TOKEN_ENDPOINT',
   'STREAM_TOKEN_ENDPOINT',
 ])
 
 const isValidHttpUrl = (value: string) => /^https?:\/\/.+/i.test(value)
+const isAbsolutePath = (value: string) => value.startsWith('/')
+const normalizeTokenEndpoint = (value: string) => {
+  if (isValidHttpUrl(value)) {
+    try {
+      const url = new URL(value)
+      if (url.pathname === '/' || url.pathname === '') {
+        url.pathname = '/api/stream-token'
+      }
+      return url.toString()
+    } catch {
+      return value
+    }
+  }
+
+  if (isAbsolutePath(value)) {
+    return value
+  }
+
+  return ''
+}
+
+export const streamTokenEndpoint = normalizeTokenEndpoint(rawStreamTokenEndpoint)
+const hasValidTokenEndpoint = Boolean(streamTokenEndpoint)
 
 export const hasStreamConfig = Boolean(
-  streamApiKey && streamTokenEndpoint && isValidHttpUrl(streamTokenEndpoint),
+  streamApiKey && hasValidTokenEndpoint,
 )
 
 export const streamConfigError = !streamApiKey
   ? 'Не найден VITE_STREAM_API_KEY'
-  : !streamTokenEndpoint
+  : !rawStreamTokenEndpoint
     ? 'Не найден VITE_STREAM_TOKEN_ENDPOINT'
-    : !isValidHttpUrl(streamTokenEndpoint)
-      ? 'VITE_STREAM_TOKEN_ENDPOINT должен начинаться с http:// или https://'
+    : !hasValidTokenEndpoint
+      ? 'VITE_STREAM_TOKEN_ENDPOINT должен быть полным URL или начинаться с /'
       : null
