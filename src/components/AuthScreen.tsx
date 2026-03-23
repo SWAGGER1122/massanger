@@ -11,32 +11,55 @@ export function AuthScreen({ onError }: AuthScreenProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [statusMessage, setStatusMessage] = useState('')
+  const [statusType, setStatusType] = useState<'error' | 'success' | ''>('')
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!supabase) {
-      onError('Supabase is not configured yet.')
+      const message = 'Supabase is not configured yet.'
+      onError(message)
+      setStatusType('error')
+      setStatusMessage(message)
       return
     }
 
     if (!email || !password) {
-      onError('Email and password are required.')
+      const message = 'Email and password are required.'
+      onError(message)
+      setStatusType('error')
+      setStatusMessage(message)
       return
     }
 
     setLoading(true)
+    setStatusMessage('')
+    setStatusType('')
 
     const action =
       mode === 'signin'
         ? supabase.auth.signInWithPassword({ email, password })
         : supabase.auth.signUp({ email, password })
 
-    const { error } = await action
+    const { data, error } = await action
 
     if (error) {
       onError(error.message)
+      setStatusType('error')
+      setStatusMessage(error.message)
+    } else if (mode === 'signin' && !data.session) {
+      setStatusType('error')
+      setStatusMessage('Login did not create a session. Check email confirmation.')
     } else if (mode === 'signup') {
-      onError('Account created. Check your email if confirmation is enabled.')
+      const message =
+        'Account created. Confirm email if required, then use Sign In.'
+      onError(message)
+      setStatusType('success')
+      setStatusMessage(message)
+      setMode('signin')
+    } else {
+      setStatusMessage('')
+      setStatusType('')
     }
 
     setLoading(false)
@@ -49,6 +72,17 @@ export function AuthScreen({ onError }: AuthScreenProps) {
         <p className="mt-2 text-sm text-slate-400">
           Private family chat and calls from anywhere.
         </p>
+        {statusMessage && (
+          <div
+            className={`mt-4 rounded-xl border px-3 py-2 text-sm ${
+              statusType === 'error'
+                ? 'border-red-500/40 bg-red-500/10 text-red-200'
+                : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
+            }`}
+          >
+            {statusMessage}
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <label className="block text-sm text-slate-200">
             Email
