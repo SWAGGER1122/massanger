@@ -44,9 +44,12 @@ export function VideoCallModal({
   const setupInProgressKeyRef = useRef('')
 
   const callId = useMemo(() => callRoomKey, [callRoomKey])
-  const memberIdsKey = useMemo(() => [...memberIds].sort().join('|'), [memberIds])
+  const memberIdsKey = useMemo(
+    () => Array.from(new Set(memberIds.filter((id) => Boolean(id)))).sort().join('|'),
+    [memberIds],
+  )
   const stableMemberIds = useMemo(
-    () => memberIdsKey.split('|').filter((id) => Boolean(id)),
+    () => Array.from(new Set(memberIdsKey.split('|').filter((id) => Boolean(id)))),
     [memberIdsKey],
   )
   const setupKey = useMemo(

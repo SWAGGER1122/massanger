@@ -174,10 +174,13 @@ function App() {
   )
   const effectiveActiveChatId = activeChat?.id || activeChatId
   const callMemberIds = useMemo(
-    () =>
-      callChatId && callChatId !== 'family'
-        ? [user?.id || '', callChatId].filter((id) => Boolean(id))
-        : profiles.map((profile) => profile.id),
+    () => {
+      const rawIds =
+        callChatId && callChatId !== 'family'
+          ? [user?.id || '', callChatId]
+          : profiles.map((profile) => profile.id)
+      return Array.from(new Set(rawIds.filter((id) => Boolean(id))))
+    },
     [callChatId, profiles, user?.id],
   )
 
