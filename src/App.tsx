@@ -38,6 +38,12 @@ const normalizeProfile = (record: DbRecord): Profile => ({
       : typeof record.avatar === 'string'
         ? record.avatar
         : null,
+  phone:
+    typeof record.phone === 'string'
+      ? record.phone
+      : typeof record.phone_number === 'string'
+        ? record.phone_number
+        : null,
 })
 
 const normalizeMessage = (record: DbRecord): Message => ({
@@ -57,11 +63,9 @@ const normalizeMessage = (record: DbRecord): Message => ({
   content:
     typeof record.content === 'string'
       ? record.content
-      : typeof record.message === 'string'
-        ? record.message
-        : typeof record.text === 'string'
-          ? record.text
-          : '',
+      : typeof record.text === 'string'
+        ? record.text
+        : '',
   created_at:
     typeof record.created_at === 'string'
       ? record.created_at
@@ -92,11 +96,16 @@ function App() {
   const [cameraEnabled, setCameraEnabled] = useState(true)
   const realtimeChannelRef = useRef<BroadcastSender | null>(null)
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const callStateRef = useRef<CallState>('idle')
+  const callChatIdRef = useRef<string | null>(null)
 
   const currentProfile = useMemo(
     () => profiles.find((profile) => profile.id === user?.id) || null,
     [profiles, user?.id],
   )
+  const metadataPhone =
+    typeof user?.user_metadata?.phone === 'string' ? user.user_metadata.phone : ''
+  const currentUserPhone = metadataPhone || currentProfile?.phone || ''
 
   const chats = useMemo<ChatThread[]>(() => {
     if (!user) return []
@@ -164,6 +173,13 @@ function App() {
     [activeChatId, chats],
   )
   const effectiveActiveChatId = activeChat?.id || activeChatId
+  const callMemberIds = useMemo(
+    () =>
+      callChatId && callChatId !== 'family'
+        ? [user?.id || '', callChatId].filter((id) => Boolean(id))
+        : profiles.map((profile) => profile.id),
+    [callChatId, profiles, user?.id],
+  )
 
   const visibleMessages = useMemo(() => {
     if (!user) return []
@@ -182,6 +198,11 @@ function App() {
         (message.sender_id === effectiveActiveChatId && message.receiver_id === user.id),
     )
   }, [effectiveActiveChatId, messages, user])
+
+  useEffect(() => {
+    callStateRef.current = callState
+    callChatIdRef.current = callChatId
+  }, [callChatId, callState])
 
   useEffect(() => {
     if (!user || !supabase) return
@@ -351,7 +372,11 @@ function App() {
         const payload = (eventPayload as { payload?: DbRecord }).payload || {}
         const chatId = asString(payload.chatId)
 
-        if (callState === 'outgoing' && callChatId && callChatId === chatId) {
+        if (
+          callStateRef.current === 'outgoing' &&
+          callChatIdRef.current &&
+          callChatIdRef.current === chatId
+        ) {
           setCallState('idle')
           setCallChatId(null)
           setErrorMessage('Собеседник отклонил вызов.')
@@ -367,7 +392,7 @@ function App() {
       client.removeChannel(signalsChannel)
       realtimeChannelRef.current = null
     }
-  }, [callChatId, callState, user])
+  }, [user])
 
   useEffect(() => {
     if (!user || !supabase || visibleMessages.length === 0) return
@@ -410,7 +435,6 @@ function App() {
     if (!user || !supabase || !draft.trim()) return
     setSending(true)
 
-    // Сохраняем структуру прошлой схемы и добавляем отправку в активный чат.
     const payload =
       effectiveActiveChatId === 'family'
         ? {
@@ -425,15 +449,7 @@ function App() {
             read_by: [user.id],
           }
 
-    let { error } = await supabase.from('messages').insert(payload)
-
-    if (error) {
-      const fallbackInsert = await supabase.from('messages').insert({
-        user_id: user.id,
-        message: draft.trim(),
-      })
-      error = fallbackInsert.error
-    }
+    const { error } = await supabase.from('messages').insert(payload)
 
     if (error) {
       setErrorMessage(error.message)
@@ -525,16 +541,75 @@ function App() {
     setCallDurationSeconds(0)
   }
 
-  const handleSaveProfile = async (fullName: string, avatarUrl: string) => {
+  const handleSaveProfile = async (
+    fullName: string,
+    avatarUrl: string,
+    phone: string,
+    photoFile: File | null,
+  ) => {
     if (!user || !supabase) return
+    let nextAvatarUrl = avatarUrl.trim()
+    const normalizedPhone = phone.trim()
+
+    if (photoFile) {
+      if (photoFile.size > 4 * 1024 * 1024) {
+        setErrorMessage('Фото слишком большое. Максимум 4MB.')
+        return
+      }
+
+      const fileDataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () =>
+          typeof reader.result === 'string'
+            ? resolve(reader.result)
+            : reject(new Error('Не удалось прочитать файл'))
+        reader.onerror = () => reject(new Error('Не удалось прочитать файл'))
+        reader.readAsDataURL(photoFile)
+      }).catch(() => '')
+
+      if (!fileDataUrl) {
+        setErrorMessage('Не удалось обработать фото профиля.')
+        return
+      }
+
+      nextAvatarUrl = fileDataUrl
+    }
+
     const { error } = await supabase.from('profiles').upsert({
       id: user.id,
       full_name: fullName.trim() || null,
-      avatar_url: avatarUrl.trim() || null,
+      avatar_url: nextAvatarUrl || null,
     })
 
     if (error) {
       setErrorMessage(error.message)
+      return
+    }
+
+    const { error: updateUserError } = await supabase.auth.updateUser({
+      data: {
+        full_name: fullName.trim() || null,
+        avatar_url: nextAvatarUrl || null,
+        phone: normalizedPhone || null,
+      },
+    })
+
+    if (updateUserError) {
+      setErrorMessage(updateUserError.message)
+    } else {
+      setErrorMessage('')
+      setProfiles((previous) =>
+        previous.map((profile) =>
+          profile.id === user.id
+            ? {
+                ...profile,
+                full_name: fullName.trim() || null,
+                avatar_url: nextAvatarUrl || null,
+                phone: normalizedPhone || null,
+              }
+            : profile,
+        ),
+      )
     }
   }
 
@@ -580,7 +655,14 @@ function App() {
       <main className="relative min-h-screen overflow-hidden bg-slate-950 p-4 md:flex md:gap-4 md:p-5">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(139,92,246,0.28),transparent_35%),radial-gradient(circle_at_90%_10%,rgba(59,130,246,0.22),transparent_35%),radial-gradient(circle_at_80%_80%,rgba(45,212,191,0.2),transparent_35%)]" />
         <Sidebar
-          currentUser={currentProfile}
+          currentUser={
+            currentProfile
+              ? {
+                  ...currentProfile,
+                  phone: currentUserPhone || currentProfile.phone,
+                }
+              : null
+          }
           chats={chats}
           activeChatId={effectiveActiveChatId}
           onSelectChat={(chatId) => {
@@ -623,6 +705,7 @@ function App() {
       <ProfileModal
         open={profileOpen}
         profile={currentProfile}
+        currentPhone={currentUserPhone}
         onClose={() => setProfileOpen(false)}
         onSave={handleSaveProfile}
       />
@@ -631,11 +714,7 @@ function App() {
           open={callState === 'active' && Boolean(callChatId)}
           profile={currentProfile}
           callRoomKey={`family-room-${callChatId || 'family'}`}
-          memberIds={
-            callChatId && callChatId !== 'family'
-              ? [user.id, callChatId]
-              : profiles.map((profile) => profile.id)
-          }
+          memberIds={callMemberIds}
           onClose={handleEndCall}
           onError={setErrorMessage}
         />

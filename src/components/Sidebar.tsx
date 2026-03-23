@@ -1,4 +1,4 @@
-import { BellRing, LogOut, MessageCircle, Sparkles, UserRoundPen } from 'lucide-react'
+import { BellRing, LogOut, MessageCircle, Phone, Sparkles, UserRoundPen } from 'lucide-react'
 import type { ChatThread, Profile } from '../types/chat'
 
 type SidebarProps = {
@@ -39,6 +39,10 @@ export function Sidebar({
               <h2 className="text-base font-semibold text-white">
                 {currentUser?.full_name || 'Мой профиль'}
               </h2>
+              <p className="mt-0.5 flex items-center gap-1 text-xs text-cyan-100/75">
+                <Phone size={11} />
+                {currentUser?.phone || 'Телефон не указан'}
+              </p>
             </div>
           </div>
           <button
